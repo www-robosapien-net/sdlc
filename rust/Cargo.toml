@@ -1,0 +1,16 @@
+[package]
+name = "sdlc"
+version = "0.0.1"
+edition = "2021"
+description = "Universal SDLC pipeline — agentic development lifecycle automation"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/www-robosapien-net/sdlc"
+keywords = ["sdlc", "pipeline", "devops", "ci-cd", "automation"]
+categories = ["development-tools", "command-line-utilities"]
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "sdlc"
+path = "src/main.rs"

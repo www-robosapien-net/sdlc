@@ -1,0 +1,97 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  rust-build:
+    name: Rust ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - { target: x86_64-unknown-linux-gnu, os: ubuntu-latest, artifact: sdlc-linux-x86_64 }
+          - { target: aarch64-unknown-linux-gnu, os: ubuntu-latest, artifact: sdlc-linux-aarch64 }
+          - { target: x86_64-apple-darwin, os: macos-latest, artifact: sdlc-darwin-x86_64 }
+          - { target: aarch64-apple-darwin, os: macos-latest, artifact: sdlc-darwin-aarch64 }
+          - { target: x86_64-pc-windows-msvc, os: windows-latest, artifact: sdlc-windows-x86_64.exe }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Install cross
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: cargo install cross
+      - name: Build
+        working-directory: rust
+        shell: bash
+        run: |
+          if [ "${{ matrix.target }}" = "aarch64-unknown-linux-gnu" ]; then
+            cross build --release --target ${{ matrix.target }}
+          else
+            cargo build --release --target ${{ matrix.target }}
+          fi
+      - name: Package
+        shell: bash
+        run: |
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            cp rust/target/${{ matrix.target }}/release/sdlc.exe ${{ matrix.artifact }}
+          else
+            cp rust/target/${{ matrix.target }}/release/sdlc ${{ matrix.artifact }}
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}
+
+  go-build:
+    name: Go ${{ matrix.goos }}/${{ matrix.goarch }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - { goos: linux, goarch: amd64, artifact: sdlc-go-linux-x86_64 }
+          - { goos: linux, goarch: arm64, artifact: sdlc-go-linux-aarch64 }
+          - { goos: darwin, goarch: amd64, artifact: sdlc-go-darwin-x86_64 }
+          - { goos: darwin, goarch: arm64, artifact: sdlc-go-darwin-aarch64 }
+          - { goos: windows, goarch: amd64, artifact: sdlc-go-windows-x86_64.exe }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: '0'
+        run: |
+          cd go
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            go build -ldflags="-s -w" -o ../${{ matrix.artifact }} ./cmd/sdlc
+          else
+            go build -ldflags="-s -w" -o ../${{ matrix.artifact }} ./cmd/sdlc
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}
+
+  release:
+    name: Create Release
+    needs: [rust-build, go-build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: artifacts/**/*

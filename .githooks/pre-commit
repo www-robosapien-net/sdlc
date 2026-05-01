@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# Pre-commit hook — blocks secrets, private network refs, and large files
+set -euo pipefail
+
+# Block known secret patterns
+PATTERNS=(
+  'ghp_[A-Za-z0-9]{36}'
+  'cio_[A-Za-z0-9]+'
+  'AKIA[A-Z0-9]{16}'
+  'sk-[A-Za-z0-9]{48}'
+  'xoxb-[0-9]+'
+  'BEGIN (RSA|EC|DSA|OPENSSH) PRIVATE KEY'
+  'password\s*[:=]\s*["\x27][^"\x27]{8,}'
+)
+
+STAGED=$(git diff --cached --name-only --diff-filter=ACM)
+[ -z "$STAGED" ] && exit 0
+
+for pattern in "${PATTERNS[@]}"; do
+  if git diff --cached -U0 | grep -qEi "$pattern"; then
+    echo "❌ BLOCKED: Potential secret detected matching: $pattern"
+    exit 1
+  fi
+done
+
+# Block private network references (RFC1918, local hostnames)
+if git diff --cached -U0 | grep -qE '192\.168\.[0-9]+\.|10\.[0-9]+\.[0-9]+\.|172\.(1[6-9]|2[0-9]|3[01])\.|/home/[a-z]+/|/mnt/|ubuntu@|root@'; then
+  echo "❌ BLOCKED: Private network address or local path detected"
+  echo "   This is a public repo — no internal references allowed."
+  exit 1
+fi
+
+# Block large files (>1MB)
+for file in $STAGED; do
+  [ -f "$file" ] || continue
+  size=$(wc -c < "$file")
+  if [ "$size" -gt 1048576 ]; then
+    echo "❌ BLOCKED: $file is $(( size / 1024 ))KB — max 1MB"
+    exit 1
+  fi
+done
+
+echo "✅ Pre-commit checks passed"
